@@ -43,7 +43,26 @@ httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
   console.log(`📱 Mobile Scanner PWA running at http://localhost:${HTTP_PORT}`);
 });
 
-// --- 2. WebSocket Server for Hardware & Scanners (Port 17777) ---
+// --- 2. Weighing Scale ASCII Stream Parser ---
+/**
+ * Common supermarket digital scale protocols:
+ * CAS, Toledo, Avery Berkel format:
+ * "ST,GS,+  1.250kg\r\n" -> 1.250 kg (Stable)
+ * "US,GS,+  1.250kg\r\n" -> 1.250 kg (Unstable/Settling)
+ */
+function parseScaleAscii(raw: string): { weight: number; unit: string; stable: boolean } | null {
+  try {
+    const isStable = raw.includes('ST') || !raw.includes('US');
+    const match = raw.match(/([0-9]+\.[0-9]+)/);
+    if (match) {
+      const weight = parseFloat(match[1]);
+      return { weight, unit: 'kg', stable: isStable };
+    }
+  } catch (e) {}
+  return null;
+}
+
+// --- 3. WebSocket Server for Hardware & Scanners (Port 17777) ---
 const wss = new WebSocketServer({ port: WS_PORT });
 
 console.log(`🔌 Hardware Bridge WebSocket running at ws://localhost:${WS_PORT}`);
@@ -52,47 +71,53 @@ wss.on('connection', (ws: WebSocket, req) => {
   const remoteIp = req.socket.remoteAddress;
   console.log(`[Bridge] Client connected from ${remoteIp}`);
 
-  // Send status upon connection
-  ws.send(JSON.stringify({
-    type: 'BRIDGE_STATUS',
-    payload: {
-      printer: 'ready',
-      scale: 'ready',
-      drawer: 'ready',
-      version: '1.0.0',
-    }
-  }));
+  ws.send(
+    JSON.stringify({
+      type: 'BRIDGE_STATUS',
+      payload: {
+        printer: 'ready',
+        scale: 'ready',
+        drawer: 'ready',
+        version: '1.2.0',
+      },
+    })
+  );
 
   ws.on('message', (data: string) => {
     try {
       const message = JSON.parse(data.toString());
-      console.log('[Bridge Received]:', message.type, message.payload || '');
 
       switch (message.type) {
         case 'PRINT_RECEIPT':
-          console.log('================ ESC/POS RECEIPT ================');
+          console.log('\n================ ESC/POS THERMAL RECEIPT ================');
           if (message.payload?.lines) {
             message.payload.lines.forEach((line: string) => console.log(line));
           }
-          console.log('=================================================');
+          console.log('=========================================================\n');
           ws.send(JSON.stringify({ type: 'PRINT_OK' }));
           break;
 
         case 'OPEN_DRAWER':
-          console.log('[Bridge Hardware] 🔔 Cash Drawer KICK triggered!');
+          console.log('[Bridge Hardware] 🔔 ESC/POS Pulse Kickout Drawer (Pin 2 / 24V)!');
+          ws.send(JSON.stringify({ type: 'DRAWER_KICK_OK' }));
           break;
 
         case 'GET_SCALE_WEIGHT':
-          // Simulate stable scale reading (e.g. 1.250 kg)
-          const mockWeight = Number((Math.random() * 2 + 0.5).toFixed(3));
-          ws.send(JSON.stringify({
-            type: 'SCALE_WEIGHT',
-            payload: { weight: mockWeight, unit: 'kg', stable: true }
-          }));
+          // Simulate or read from serialport
+          const sampleRaw = `ST,GS,+  ${(Math.random() * 2 + 0.5).toFixed(3)}kg\r\n`;
+          const parsed = parseScaleAscii(sampleRaw);
+          if (parsed) {
+            ws.send(
+              JSON.stringify({
+                type: 'SCALE_WEIGHT',
+                payload: parsed,
+              })
+            );
+          }
           break;
 
         case 'BARCODE_SCANNED':
-          // Broadcast scanned barcode from phone to all connected POS terminals
+          // Relay phone camera scanner scan to all active POS terminals
           wss.clients.forEach((client) => {
             if (client !== ws && client.readyState === WebSocket.OPEN) {
               client.send(JSON.stringify(message));

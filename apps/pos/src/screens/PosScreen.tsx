@@ -215,12 +215,18 @@ export const PosScreen: React.FC = () => {
       } else if (e.key === 'F5') {
         e.preventDefault();
         if (cart.length > 0 && isOnline) setKeyboardMode('PAYHERE');
+      } else if (e.key === 'F6') {
+        e.preventDefault();
+        if (cart.length > 0) setShowSplitModal(true);
       } else if (e.key === 'F8') {
         e.preventDefault();
         handleHoldSale();
       } else if (e.key === 'F9') {
         e.preventDefault();
         setShowHeldModal(true);
+      } else if (e.key === 'F10') {
+        e.preventDefault();
+        setShowRefundModal(true);
       } else if (e.key === 'F11') {
         e.preventDefault();
         setKeyboardMode('SCANNER_QR');
@@ -476,8 +482,10 @@ export const PosScreen: React.FC = () => {
               <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F2:</span> Barcode Input (Always focused)</div>
               <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F4:</span> Cash Payment + Auto-Change</div>
               <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F5:</span> PayHere Card Payment</div>
+              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F6:</span> Split Tender (Cash + Card)</div>
               <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F8:</span> Hold Current Cart</div>
               <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F9:</span> Recall Held Cart</div>
+              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F10:</span> Customer Return / Refund</div>
               <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F11:</span> Pair Wireless Phone Scanner</div>
               <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F12:</span> Open Cash Drawer (Manager PIN)</div>
               <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">Ctrl+Z:</span> Void / Remove Last Item</div>
