@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { StockMovementType, SaleStatus, PaymentMethod } from '@prisma/client';
+import { StockMovementType, SaleStatus, PaymentMethod, ApprovalStatus } from '@prisma/client';
 
 @Injectable()
 export class SalesService {
@@ -133,7 +133,6 @@ export class SalesService {
   async createSale(cashierId: string, data: any) {
     const { offlineId, branchId, shiftId, items, payments } = data;
 
-    // Idempotency check for offline sync
     if (offlineId) {
       const existing = await this.prisma.sale.findUnique({
         where: { offlineId },
@@ -257,13 +256,11 @@ export class SalesService {
       if (!sale) throw new NotFoundException('Sale not found');
       if (sale.status === 'VOIDED') throw new BadRequestException('Sale is already voided');
 
-      // 1. Mark sale voided
       const updatedSale = await tx.sale.update({
         where: { id: saleId },
         data: { status: SaleStatus.VOIDED },
       });
 
-      // 2. Restore stock
       for (const item of sale.items) {
         await tx.stock.update({
           where: {
@@ -295,6 +292,72 @@ export class SalesService {
     });
   }
 
+  // --- Refunds ---
+  async refundSale(saleId: string, cashierId: string, itemsToRefund: { productId: string; qty: number }[], reason: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const sale = await tx.sale.findUnique({
+        where: { id: saleId },
+        include: { items: true },
+      });
+
+      if (!sale) throw new NotFoundException('Sale not found');
+
+      let refundTotal = 0;
+
+      for (const refundItem of itemsToRefund) {
+        const original = sale.items.find((i) => i.productId === refundItem.productId);
+        if (!original) continue;
+
+        const lineRefund = Number(original.unitPrice) * refundItem.qty;
+        refundTotal += lineRefund;
+
+        // Return stock
+        await tx.stock.update({
+          where: {
+            branchId_productId: {
+              branchId: sale.branchId,
+              productId: refundItem.productId,
+            },
+          },
+          data: {
+            quantity: { increment: refundItem.qty },
+          },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            branchId: sale.branchId,
+            productId: refundItem.productId,
+            userId: cashierId,
+            type: StockMovementType.RETURN,
+            qtyChange: refundItem.qty,
+            qtyBefore: 0,
+            qtyAfter: refundItem.qty,
+            reference: `REFUND: ${sale.invoiceNo} - ${reason}`,
+          },
+        });
+      }
+
+      const refundRecord = await tx.refund.create({
+        data: {
+          saleId,
+          cashierId,
+          total: refundTotal,
+          reason,
+          status: ApprovalStatus.APPROVED,
+        },
+      });
+
+      // Update sale status if fully refunded
+      await tx.sale.update({
+        where: { id: saleId },
+        data: { status: SaleStatus.REFUNDED },
+      });
+
+      return refundRecord;
+    });
+  }
+
   // --- Held Sales ---
   async holdSale(branchId: string, terminalId: string, cashierId: string, holdRef: string, cartJson: any) {
     return this.prisma.heldSale.create({
@@ -321,6 +384,19 @@ export class SalesService {
     if (!held) throw new NotFoundException('Held cart not found');
     await this.prisma.heldSale.delete({ where: { id } });
     return held;
+  }
+
+  async getSaleByInvoice(invoiceNo: string) {
+    const sale = await this.prisma.sale.findUnique({
+      where: { invoiceNo },
+      include: {
+        items: { include: { product: true } },
+        payments: true,
+        cashier: { select: { name: true } },
+      },
+    });
+    if (!sale) throw new NotFoundException(`Invoice ${invoiceNo} not found`);
+    return sale;
   }
 
   async getRecentSales(branchId: string, limit = 20) {

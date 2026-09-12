@@ -9,6 +9,8 @@ import { WeightModal } from '../components/WeightModal';
 import { PhoneScannerModal } from '../components/PhoneScannerModal';
 import { HeldSalesModal } from '../components/HeldSalesModal';
 import { ManagerPinPrompt } from '../components/ManagerPinPrompt';
+import { SplitPaymentModal } from '../components/SplitPaymentModal';
+import { RefundModal } from '../components/RefundModal';
 import {
   Wifi,
   WifiOff,
@@ -51,6 +53,8 @@ export const PosScreen: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [showHelp, setShowHelp] = useState(false);
   const [showHeldModal, setShowHeldModal] = useState(false);
+  const [showSplitModal, setShowSplitModal] = useState(false);
+  const [showRefundModal, setShowRefundModal] = useState(false);
   const [managerPromptAction, setManagerPromptAction] = useState<string | null>(null);
 
   // Monitor online / offline state
@@ -441,6 +445,16 @@ export const PosScreen: React.FC = () => {
       {keyboardMode === 'WEIGHT' && <WeightModal />}
       {keyboardMode === 'SCANNER_QR' && <PhoneScannerModal />}
       {showHeldModal && <HeldSalesModal />}
+      {showSplitModal && (
+        <SplitPaymentModal
+          onClose={() => setShowSplitModal(false)}
+        />
+      )}
+      {showRefundModal && (
+        <RefundModal
+          onClose={() => setShowRefundModal(false)}
+        />
+      )}
       {managerPromptAction && (
         <ManagerPinPrompt
           actionTitle={managerPromptAction}

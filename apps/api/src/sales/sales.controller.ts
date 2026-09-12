@@ -65,6 +65,27 @@ export class SalesController {
     return this.salesService.voidSale(id, req.user.id, body.reason);
   }
 
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(Role.OWNER, Role.MANAGER)
+  @ApiBearerAuth()
+  @Post(':id/refund')
+  @ApiOperation({ summary: 'Refund item(s) from a completed sale and return inventory' })
+  refundSale(
+    @Param('id') id: string,
+    @Body() body: { items: { productId: string; qty: number }[]; reason: string },
+    @Request() req: any,
+  ) {
+    return this.salesService.refundSale(id, req.user.id, body.items, body.reason);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @ApiBearerAuth()
+  @Get('invoice/:invoiceNo')
+  @ApiOperation({ summary: 'Find sale by invoice number for reprint or refund' })
+  getSaleByInvoice(@Param('invoiceNo') invoiceNo: string) {
+    return this.salesService.getSaleByInvoice(invoiceNo);
+  }
+
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
   @Post('hold')
