@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockMovementType, SaleStatus, PaymentMethod } from '@prisma/client';
 
@@ -7,7 +7,6 @@ export class SalesService {
   constructor(private prisma: PrismaService) {}
 
   async openShift(cashierId: string, terminalId: string, branchId: string, openingFloat: number) {
-    // Check if there's already an open shift for this terminal
     const existing = await this.prisma.shift.findFirst({
       where: { terminalId, status: 'OPEN' },
     });
@@ -67,25 +66,86 @@ export class SalesService {
     });
   }
 
+  async getShiftReport(shiftId: string) {
+    const shift = await this.prisma.shift.findUnique({
+      where: { id: shiftId },
+      include: {
+        branch: true,
+        terminal: true,
+        cashier: { select: { id: true, name: true, email: true } },
+        sales: {
+          include: {
+            payments: true,
+            items: { include: { product: true } },
+          },
+        },
+      },
+    });
+
+    if (!shift) throw new NotFoundException('Shift not found');
+
+    let totalGrossSales = 0;
+    let totalDiscounts = 0;
+    let totalNetSales = 0;
+    let cashCollected = 0;
+    let cardCollected = 0;
+    let totalTransactions = 0;
+    let voidedSalesCount = 0;
+
+    shift.sales.forEach((s) => {
+      if (s.status === 'PAID') {
+        totalGrossSales += Number(s.subtotal);
+        totalDiscounts += Number(s.discount);
+        totalNetSales += Number(s.total);
+        totalTransactions++;
+
+        s.payments.forEach((p) => {
+          if (p.method === 'CASH' || p.method === 'SPLIT_CASH') cashCollected += Number(p.amount);
+          if (p.method === 'CARD' || p.method === 'SPLIT_CARD') cardCollected += Number(p.amount);
+        });
+      } else if (s.status === 'VOIDED') {
+        voidedSalesCount++;
+      }
+    });
+
+    return {
+      shiftId: shift.id,
+      branchName: shift.branch.name,
+      terminalName: shift.terminal.name,
+      cashierName: shift.cashier.name,
+      openedAt: shift.openedAt,
+      closedAt: shift.closedAt,
+      status: shift.status,
+      openingFloat: Number(shift.openingFloat),
+      totalGrossSales,
+      totalDiscounts,
+      totalNetSales,
+      cashCollected,
+      cardCollected,
+      expectedDrawerCash: Number(shift.openingFloat) + cashCollected,
+      countedCash: shift.countedCash ? Number(shift.countedCash) : null,
+      difference: shift.difference ? Number(shift.difference) : null,
+      totalTransactions,
+      voidedSalesCount,
+    };
+  }
+
   async createSale(cashierId: string, data: any) {
     const { offlineId, branchId, shiftId, items, payments } = data;
 
-    // 1. Check idempotency for offline synchronization
+    // Idempotency check for offline sync
     if (offlineId) {
       const existing = await this.prisma.sale.findUnique({
         where: { offlineId },
         include: { items: true, payments: true },
       });
       if (existing) {
-        return existing; // Return already processed sale without duplicate decrements
+        return existing;
       }
     }
 
-    // 2. Generate unique invoice number: C07-YYYYMMDD-SEQ
     const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const count = await this.prisma.sale.count({
-      where: { branchId },
-    });
+    const count = await this.prisma.sale.count({ where: { branchId } });
     const seq = String(count + 1).padStart(5, '0');
     const invoiceNo = `INV-${today}-${seq}`;
 
@@ -100,7 +160,6 @@ export class SalesService {
 
     const total = subtotal - totalDiscount;
 
-    // 3. Execute sale creation and stock decrement in single atomic transaction
     return this.prisma.$transaction(async (tx) => {
       const sale = await tx.sale.create({
         data: {
@@ -139,7 +198,6 @@ export class SalesService {
         },
       });
 
-      // Decrement inventory and log stock movement for each item
       for (const item of items) {
         const stock = await tx.stock.findUnique({
           where: {
@@ -187,6 +245,82 @@ export class SalesService {
 
       return sale;
     });
+  }
+
+  async voidSale(saleId: string, managerUserId: string, reason: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const sale = await tx.sale.findUnique({
+        where: { id: saleId },
+        include: { items: true },
+      });
+
+      if (!sale) throw new NotFoundException('Sale not found');
+      if (sale.status === 'VOIDED') throw new BadRequestException('Sale is already voided');
+
+      // 1. Mark sale voided
+      const updatedSale = await tx.sale.update({
+        where: { id: saleId },
+        data: { status: SaleStatus.VOIDED },
+      });
+
+      // 2. Restore stock
+      for (const item of sale.items) {
+        await tx.stock.update({
+          where: {
+            branchId_productId: {
+              branchId: sale.branchId,
+              productId: item.productId,
+            },
+          },
+          data: {
+            quantity: { increment: Number(item.qty) },
+          },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            branchId: sale.branchId,
+            productId: item.productId,
+            userId: managerUserId,
+            type: StockMovementType.RETURN,
+            qtyChange: Number(item.qty),
+            qtyBefore: 0,
+            qtyAfter: Number(item.qty),
+            reference: `VOID: ${sale.invoiceNo} - ${reason}`,
+          },
+        });
+      }
+
+      return updatedSale;
+    });
+  }
+
+  // --- Held Sales ---
+  async holdSale(branchId: string, terminalId: string, cashierId: string, holdRef: string, cartJson: any) {
+    return this.prisma.heldSale.create({
+      data: {
+        branchId,
+        terminalId,
+        cashierId,
+        holdRef,
+        cartJson,
+      },
+    });
+  }
+
+  async getHeldSales(branchId: string) {
+    return this.prisma.heldSale.findMany({
+      where: { branchId },
+      include: { cashier: { select: { name: true } } },
+      orderBy: { heldAt: 'desc' },
+    });
+  }
+
+  async recallHeldSale(id: string) {
+    const held = await this.prisma.heldSale.findUnique({ where: { id } });
+    if (!held) throw new NotFoundException('Held cart not found');
+    await this.prisma.heldSale.delete({ where: { id } });
+    return held;
   }
 
   async getRecentSales(branchId: string, limit = 20) {

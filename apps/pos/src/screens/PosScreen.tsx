@@ -7,6 +7,8 @@ import { CashPaymentModal } from '../components/CashPaymentModal';
 import { PayHereModal } from '../components/PayHereModal';
 import { WeightModal } from '../components/WeightModal';
 import { PhoneScannerModal } from '../components/PhoneScannerModal';
+import { HeldSalesModal } from '../components/HeldSalesModal';
+import { ManagerPinPrompt } from '../components/ManagerPinPrompt';
 import {
   Wifi,
   WifiOff,
@@ -15,6 +17,8 @@ import {
   LogOut,
   RefreshCw,
   HelpCircle,
+  PauseCircle,
+  RotateCcw,
 } from 'lucide-react';
 import axios from 'axios';
 import { db } from '../db/db';
@@ -22,17 +26,22 @@ import { db } from '../db/db';
 export const PosScreen: React.FC = () => {
   const {
     cashier,
+    shift,
     terminalId,
+    branchId,
     branchName,
     branchCode,
     isOnline,
     bridgeConnected,
     pendingSyncCount,
     keyboardMode,
+    cart,
     setKeyboardMode,
     logout,
     addItem,
     addItemByBarcode,
+    clearCart,
+    removeItem,
     setOnlineStatus,
     setBridgeStatus,
     checkPendingSync,
@@ -41,8 +50,10 @@ export const PosScreen: React.FC = () => {
   const [quickProducts, setQuickProducts] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [showHelp, setShowHelp] = useState(false);
+  const [showHeldModal, setShowHeldModal] = useState(false);
+  const [managerPromptAction, setManagerPromptAction] = useState<string | null>(null);
 
-  // Monitor network online/offline state
+  // Monitor online / offline state
   useEffect(() => {
     const handleOnline = () => {
       setOnlineStatus(true);
@@ -59,7 +70,6 @@ export const PosScreen: React.FC = () => {
     };
   }, []);
 
-  // Flush pending offline sales when connectivity is restored
   const flushPendingSales = async () => {
     try {
       const pending = await db.pendingSales.where('synced').equals(0 as any).toArray();
@@ -75,7 +85,7 @@ export const PosScreen: React.FC = () => {
     }
   };
 
-  // Connect to Desktop Hardware Bridge WebSocket
+  // Connect to Desktop Bridge WebSocket
   useEffect(() => {
     let ws: WebSocket | null = null;
     let timer: any = null;
@@ -88,7 +98,6 @@ export const PosScreen: React.FC = () => {
         };
         ws.onmessage = async (event) => {
           const msg = JSON.parse(event.data);
-          // Handle barcode scanned from phone scanner PWA
           if (msg.type === 'BARCODE_SCANNED' && msg.payload?.barcode) {
             await addItemByBarcode(msg.payload.barcode);
           }
@@ -113,7 +122,7 @@ export const PosScreen: React.FC = () => {
     };
   }, []);
 
-  // Fetch products for quick catalog grid
+  // Fetch catalog
   useEffect(() => {
     async function loadProducts() {
       try {
@@ -121,23 +130,21 @@ export const PosScreen: React.FC = () => {
         if (res.data) {
           const mapped = res.data.map((p: any) => ({
             id: p.id,
-            barcode: p.barcodes[0]?.barcode || '0000',
+            barcode: p.barcodes?.[0]?.barcode || '0000',
             name: p.name,
-            sellingPrice: p.branchProducts[0]?.sellingPrice || p.costPrice,
+            sellingPrice: p.branchProducts?.[0]?.sellingPrice || p.costPrice,
             costPrice: p.costPrice,
             isWeighed: p.isWeighed,
             unit: p.unit,
-            currentStock: p.stocks[0]?.quantity || 0,
+            currentStock: p.stocks?.[0]?.quantity || 0,
             categoryName: p.category?.name || 'General',
           }));
           setQuickProducts(mapped);
-          // Cache in Dexie
           for (const item of mapped) {
             await db.products.put(item);
           }
         }
       } catch (err) {
-        // Load from local IndexedDB if offline
         const local = await db.products.toArray();
         if (local.length > 0) {
           setQuickProducts(local);
@@ -147,6 +154,49 @@ export const PosScreen: React.FC = () => {
     loadProducts();
     checkPendingSync();
   }, []);
+
+  // Hold current cart [F8]
+  const handleHoldSale = async () => {
+    if (cart.length === 0) return;
+    const holdRef = `HOLD-${Date.now().toString().slice(-4)}`;
+
+    try {
+      if (isOnline) {
+        await axios.post(
+          'http://localhost:3000/api/sales/hold',
+          {
+            branchId,
+            terminalId,
+            holdRef,
+            cartJson: { items: cart },
+          },
+          {
+            headers: { Authorization: `Bearer ${localStorage.getItem('pos_token')}` },
+          }
+        );
+      } else {
+        await db.heldSales.add({
+          holdRef,
+          cartJson: { items: cart },
+          heldAt: new Date().toISOString(),
+        });
+      }
+      clearCart();
+    } catch (e) {
+      console.error('Error holding cart:', e);
+    }
+  };
+
+  // Open drawer manually [F12] (requires manager approval)
+  const triggerOpenDrawer = () => {
+    try {
+      const ws = new WebSocket('ws://localhost:17777');
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'OPEN_DRAWER' }));
+        ws.close();
+      };
+    } catch (e) {}
+  };
 
   // Global F-Key Hotkeys
   useEffect(() => {
@@ -159,30 +209,49 @@ export const PosScreen: React.FC = () => {
         setKeyboardMode('BARCODE');
       } else if (e.key === 'F4') {
         e.preventDefault();
-        setKeyboardMode('CASH');
+        if (cart.length > 0) setKeyboardMode('CASH');
       } else if (e.key === 'F5') {
         e.preventDefault();
-        if (isOnline) setKeyboardMode('PAYHERE');
+        if (cart.length > 0 && isOnline) setKeyboardMode('PAYHERE');
+      } else if (e.key === 'F8') {
+        e.preventDefault();
+        handleHoldSale();
+      } else if (e.key === 'F9') {
+        e.preventDefault();
+        setShowHeldModal(true);
       } else if (e.key === 'F11') {
         e.preventDefault();
         setKeyboardMode('SCANNER_QR');
+      } else if (e.key === 'F12') {
+        e.preventDefault();
+        setManagerPromptAction('Open Cash Drawer (No-Sale)');
+      } else if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+        // Void last item
+        e.preventDefault();
+        if (cart.length > 0) {
+          removeItem(0);
+        }
       } else if (e.key === 'Escape') {
         e.preventDefault();
         setShowHelp(false);
+        setShowHeldModal(false);
+        setManagerPromptAction(null);
         setKeyboardMode('BARCODE');
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOnline]);
+  }, [cart, isOnline]);
 
   const categories = ['ALL', 'Dairy & Eggs', 'Bakery & Bread', 'Rice & Grains', 'Beverages & Tea', 'Fresh Produce'];
 
   const filteredProducts =
     selectedCategory === 'ALL'
       ? quickProducts
-      : quickProducts.filter((p) => p.categoryName.toLowerCase().includes(selectedCategory.toLowerCase().slice(0, 4)));
+      : quickProducts.filter((p) =>
+          p.categoryName.toLowerCase().includes(selectedCategory.toLowerCase().slice(0, 4))
+        );
 
   return (
     <div className="h-screen w-screen bg-pos-bg flex flex-col select-none overflow-hidden">
@@ -208,7 +277,7 @@ export const PosScreen: React.FC = () => {
             }`}
           >
             {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-            <span>{isOnline ? 'ONLINE' : 'OFFLINE MODE'}</span>
+            <span>{isOnline ? 'ONLINE' : 'OFFLINE RESILIENT'}</span>
           </div>
 
           {/* Pending sync indicator */}
@@ -310,7 +379,6 @@ export const PosScreen: React.FC = () => {
           <div className="h-44 shrink-0">
             <NumericKeypad
               onNumber={(n) => {
-                // Focus barcode input and append
                 const input = document.querySelector('input') as HTMLInputElement;
                 if (input) {
                   input.value += n;
@@ -352,16 +420,18 @@ export const PosScreen: React.FC = () => {
           <span><kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded">F2</kbd> Barcode</span>
           <span><kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded">F4</kbd> Cash</span>
           <span><kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded">F5</kbd> PayHere Card</span>
-          <span><kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded">F8</kbd> Hold Sale</span>
-          <span><kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded">F11</kbd> Phone Scanner</span>
-          <span><kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded">ESC</kbd> Cancel</span>
+          <span><kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded">F8</kbd> Hold</span>
+          <span><kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded">F9</kbd> Recall</span>
+          <span><kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded">F11</kbd> Phone Scan</span>
+          <span><kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded">F12</kbd> Drawer</span>
+          <span><kbd className="bg-slate-800 text-slate-200 px-1.5 py-0.5 rounded">Ctrl+Z</kbd> Void Item</span>
         </div>
         <button
           onClick={() => setShowHelp(true)}
           className="flex items-center space-x-1 text-slate-400 hover:text-white"
         >
           <HelpCircle className="w-3.5 h-3.5" />
-          <span>Shortcuts Guide</span>
+          <span>Cashier Keyboard Bible</span>
         </button>
       </footer>
 
@@ -370,21 +440,37 @@ export const PosScreen: React.FC = () => {
       {keyboardMode === 'PAYHERE' && <PayHereModal />}
       {keyboardMode === 'WEIGHT' && <WeightModal />}
       {keyboardMode === 'SCANNER_QR' && <PhoneScannerModal />}
+      {showHeldModal && <HeldSalesModal />}
+      {managerPromptAction && (
+        <ManagerPinPrompt
+          actionTitle={managerPromptAction}
+          onSuccess={() => {
+            if (managerPromptAction.includes('Drawer')) {
+              triggerOpenDrawer();
+            }
+            setManagerPromptAction(null);
+          }}
+          onCancel={() => setManagerPromptAction(null)}
+        />
+      )}
 
       {/* Help Modal */}
       {showHelp && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
           <div className="bg-pos-surface border border-pos-border rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4">
-            <h3 className="text-lg font-bold text-white">POS Cashier Keyboard Shortcuts</h3>
+            <h3 className="text-lg font-bold text-white">Cashier Keyboard Shortcuts (Bible)</h3>
             <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F1:</span> Show/Hide Shortcuts</div>
-              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F2:</span> Focus Barcode Field</div>
-              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F4:</span> Cash Payment Screen</div>
-              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F5:</span> PayHere Card Screen</div>
+              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F1:</span> Shortcuts Guide</div>
+              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F2:</span> Barcode Input (Always focused)</div>
+              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F4:</span> Cash Payment + Auto-Change</div>
+              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F5:</span> PayHere Card Payment</div>
               <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F8:</span> Hold Current Cart</div>
-              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F11:</span> Pair Mobile Camera Scanner</div>
-              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">ENTER:</span> Confirm Step</div>
-              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">ESC:</span> Cancel / Clear Field</div>
+              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F9:</span> Recall Held Cart</div>
+              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F11:</span> Pair Wireless Phone Scanner</div>
+              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">F12:</span> Open Cash Drawer (Manager PIN)</div>
+              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">Ctrl+Z:</span> Void / Remove Last Item</div>
+              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">ENTER:</span> Confirm / Next Step</div>
+              <div className="p-2 bg-slate-900 rounded"><span className="text-sky-400 font-bold">ESC:</span> Cancel / Close Dialog</div>
             </div>
             <button
               onClick={() => setShowHelp(false)}
