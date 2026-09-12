@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MySuperMarket — Mobile Scanner</title>
+  <link rel="stylesheet" href="scanner.css">
+  <script src="https://unpkg.com/@zxing/library@latest"></script>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">MySuperMarket 🛒</div>
+    <div id="status" class="status disconnected">Disconnected</div>
+  </div>
+
+  <div class="scanner-container">
+    <video id="video" playsinline></video>
+    <div class="aim-guide">
+      <div class="laser"></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div id="last-barcode" class="last-scanned">Ready to scan...</div>
+    <div class="hint">Point camera at 1D Barcode (EAN/UPC) or QR code</div>
+  </div>
+
+  <script src="scanner.js"></script>
+</body>
+</html>

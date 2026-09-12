@@ -1,0 +1,8 @@
+{
+  "name": "@mysupermarket/scanner",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo \"Scanner is served via Bridge server on port 5555\""
+  }
+}

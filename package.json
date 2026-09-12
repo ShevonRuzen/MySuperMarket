@@ -1,0 +1,19 @@
+{
+  "name": "mysupermarket",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Multi-Branch Supermarket Management + Numeric-Pad POS System",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "turbo": "^2.1.0",
+    "typescript": "^5.6.2"
+  },
+  "packageManager": "pnpm@12.4.1"
+}

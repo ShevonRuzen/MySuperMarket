@@ -1,0 +1,17 @@
+{
+  "recommendations": [
+    "prisma.prisma",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "bradlc.vscode-tailwindcss",
+    "dsznajder.es7-react-js-snippets",
+    "ms-vscode.vscode-typescript-next",
+    "Gruntfuggly.todo-tree",
+    "mhutchie.git-graph",
+    "humao.rest-client",
+    "streetsidesoftware.code-spell-checker",
+    "eamodio.gitlens",
+    "ms-azuretools.vscode-docker",
+    "PKief.material-icon-theme"
+  ]
+}
