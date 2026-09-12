@@ -10,11 +10,15 @@ import {
   Layers,
   Truck,
   LayoutDashboard,
+  ShoppingCart,
+  ArrowLeftRight,
 } from 'lucide-react';
 import axios from 'axios';
 import { Products } from './Products';
 import { Categories } from './Categories';
 import { Suppliers } from './Suppliers';
+import { Purchasing } from './Purchasing';
+import { Transfers } from './Transfers';
 
 interface DashboardProps {
   user: any;
@@ -22,7 +26,7 @@ interface DashboardProps {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
-  const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'PRODUCTS' | 'CATEGORIES' | 'SUPPLIERS'>('DASHBOARD');
+  const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'PRODUCTS' | 'CATEGORIES' | 'SUPPLIERS' | 'PURCHASING' | 'TRANSFERS'>('DASHBOARD');
   const [branches, setBranches] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [recentSales, setRecentSales] = useState<any[]>([]);
@@ -112,6 +116,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
               <Truck className="w-4 h-4" />
               <span>Suppliers</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('PURCHASING')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition ${
+                activeTab === 'PURCHASING'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <ShoppingCart className="w-4 h-4" />
+              <span>Purchasing</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('TRANSFERS')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition ${
+                activeTab === 'TRANSFERS'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <ArrowLeftRight className="w-4 h-4" />
+              <span>Transfers</span>
+            </button>
           </nav>
         </div>
 
@@ -135,6 +163,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
         {activeTab === 'PRODUCTS' && <Products />}
         {activeTab === 'CATEGORIES' && <Categories />}
         {activeTab === 'SUPPLIERS' && <Suppliers />}
+        {activeTab === 'PURCHASING' && <Purchasing />}
+        {activeTab === 'TRANSFERS' && <Transfers />}
 
         {activeTab === 'DASHBOARD' && (
           <div className="space-y-6">

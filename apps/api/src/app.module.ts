@@ -8,6 +8,8 @@ import { SuppliersModule } from './suppliers/suppliers.module';
 import { ProductsModule } from './products/products.module';
 import { SalesModule } from './sales/sales.module';
 import { PaymentsModule } from './payments/payments.module';
+import { PurchasingModule } from './purchasing/purchasing.module';
+import { TransfersModule } from './transfers/transfers.module';
 
 @Controller('health')
 class HealthController {
@@ -33,6 +35,8 @@ class HealthController {
     ProductsModule,
     SalesModule,
     PaymentsModule,
+    PurchasingModule,
+    TransfersModule,
   ],
   controllers: [HealthController],
 })
