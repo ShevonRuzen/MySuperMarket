@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import { db } from '../db/db';
+import { syncEngine } from '../services/syncEngine';
 
 export const PosScreen: React.FC = () => {
   const {
@@ -57,22 +58,19 @@ export const PosScreen: React.FC = () => {
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [managerPromptAction, setManagerPromptAction] = useState<string | null>(null);
 
-  // Monitor online / offline state
+  // Initialize background SyncEngine
   useEffect(() => {
-    const handleOnline = () => {
-      setOnlineStatus(true);
-      flushPendingSales();
-    };
-    const handleOffline = () => setOnlineStatus(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    syncEngine.start(branchId || 'demo-branch');
+    const unsubscribe = syncEngine.subscribe((status, queueCount) => {
+      setOnlineStatus(status !== 'OFFLINE');
+      usePosStore.setState({ pendingSyncCount: queueCount });
+    });
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      syncEngine.stop();
+      unsubscribe();
     };
-  }, []);
+  }, [branchId]);
 
   const flushPendingSales = async () => {
     try {

@@ -10,6 +10,7 @@ export interface LocalProduct {
   unit: string;
   currentStock: number;
   categoryName: string;
+  updatedAt?: string;
 }
 
 export interface LocalPendingSale {
@@ -22,6 +23,8 @@ export interface LocalPendingSale {
   total: number;
   createdAt: string;
   synced: boolean;
+  attempts?: number;
+  lastError?: string;
 }
 
 export interface LocalHeldSale {
@@ -31,17 +34,41 @@ export interface LocalHeldSale {
   heldAt: string;
 }
 
+export interface LocalSyncLog {
+  id?: number;
+  syncType: 'CATALOG_PULL' | 'SALES_FLUSH';
+  status: 'SUCCESS' | 'ERROR';
+  itemsSynced: number;
+  syncedAt: string;
+  message?: string;
+}
+
+export interface LocalShift {
+  id: string;
+  branchId: string;
+  terminalId: string;
+  cashierId: string;
+  openingFloat: number;
+  openedAt: string;
+  closedAt?: string;
+  status: 'OPEN' | 'CLOSED';
+}
+
 export class SupermarketDatabase extends Dexie {
   products!: Table<LocalProduct>;
   pendingSales!: Table<LocalPendingSale>;
   heldSales!: Table<LocalHeldSale>;
+  syncLog!: Table<LocalSyncLog>;
+  shifts!: Table<LocalShift>;
 
   constructor() {
     super('MySuperMarketPOS_DB');
-    this.version(1).stores({
-      products: 'id, barcode, name',
+    this.version(2).stores({
+      products: 'id, barcode, name, categoryName',
       pendingSales: '++id, offlineId, synced, createdAt',
       heldSales: '++id, holdRef, heldAt',
+      syncLog: '++id, syncType, status, syncedAt',
+      shifts: 'id, terminalId, cashierId, status',
     });
   }
 }
